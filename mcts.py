@@ -1,98 +1,11 @@
 # %%
 import random
 import math
-import numpy as np
-import typing
 import os
-import logging
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s %(levelname)s %(message)s',
-)         
-
-logger = logging.getLogger(__name__)
-logger.handlers = [logging.StreamHandler()]
+from bandit import Bandit, BanditStepResults, BanditImpl
 
 GAMMA = 1. # decaying rate
 BETA = 2. # exploration weight
-
-Y = typing.TypeVar("Y") # observation
-S = typing.TypeVar("S") # state
-A = typing.TypeVar("A") # action
-
-class BanditStepResults(object):
-    """Bandit step results including the reward and the next observation and whether the simulation has ended"""
-
-    def __init__(self, reward: float = .0, observations: list[Y] = [], terminal: bool = False):
-        self.reward = reward
-        self.observations = observations
-        self.terminal = terminal
-        
-    def add(self, other):
-        self.reward += other.reward
-        self.observations += other.observations
-        self.terminal |= other.terminal
-        
-class Bandit:
-    """Bandit interface"""
-
-    def reset(self) -> list[Y]:
-        """Start with the initial state and reset the environment"""
-
-    def actions(self) -> list[A]:
-        """List of possible actions"""
-
-    def step(self, a: A) -> BanditStepResults:
-        """Commit the action and return the reward and the next observation"""
-    
-    def observe(self, s: S) -> list[Y]:
-        """Observe the state"""
-    
-    def fin(self) -> bool:
-        """Whether the simulation has ended"""
-        
-class BanditImpl(Bandit):
-    """A bandit implementation"""
-
-    def __init__(self, state_reward: dict[int, float], max_n_steps: int, max_n_steps_in_ep: int = None):
-        self.state_reward = state_reward
-        
-        self.n_steps = 0
-        self.max_n_steps = max_n_steps
-        self.max_n_steps_in_ep = max_n_steps_in_ep
-
-        self.reset()
-
-    def observe(self, s: int) -> list[int]:
-        return [s % 2, s % 3, s % 5] # example of observations
-    
-    def fin(self) -> bool:
-        return self.n_steps >= self.max_n_steps
-
-    def reset(self) -> list[int]:
-        self.n_steps_in_ep = 0
-        self.state = np.random.randint(low=-2, high=2)
-        return self.observe(self.state)
-    
-    def actions(self) -> list[int]:
-        return [-1, 1] # left, right
-
-    def step(self, a: int) -> BanditStepResults:
-        self.n_steps += 1
-        self.n_steps_in_ep += 1
-        self.state += a
-        observations = self.observe(self.state)
-        step = BanditStepResults(observations = observations)
-
-        if self.state in self.state_reward:
-            step.reward = self.state_reward[self.state]
-            step.terminal = True
-        
-        elif self.max_n_steps_in_ep:
-            step.terminal = self.max_n_steps_in_ep <= self.n_steps_in_ep
-        
-        return step
 
 NODES = {}
 class TreeNode(object):
@@ -184,27 +97,39 @@ def mcts_q(bandit: Bandit):
         backpropagate(leaf, step)
 
     all_children = [NODES[child] for child in root.children]
-    q_values_of_actions = {child.action: ucb_score(child, exploration_weight = 0.0) for child in all_children}
+    q_values_of_actions = {child.action: ucb_score(child, 0.0) for child in all_children}
     q_values = [q_values_of_actions[a] for a in bandit.actions()]
     return q_values
 
-def log_tree(node, depth=0):
-    """Log all nodes in hierarchical order"""
-    
-    node = NODES[node]
-    prestr = f"{depth*'--'+'a:'+str(node.action)+' ' if depth else ''}"
-    logger.debug(f"{prestr}r:{node.reward} n:{node.count}")
-    for child in node.children:
-        log_tree(child, depth+1)
+
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)s %(message)s',
+)         
         
 if __name__ == "__main__":
+    BETAS = [0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0]
+    
     if not os.path.exists("betas"):
         os.makedirs("betas")
-    BETAS = [0.1, 0.5, 1.0, 2.0, 5.0]
+        
+    logger = logging.getLogger(__name__)
+    logger.handlers = [logging.StreamHandler()]
+
+    def log_tree(node, depth=0):
+        """Log all nodes in hierarchical order"""
+        
+        node = NODES[node]
+        prestr = f"{depth*'--'+'a:'+str(node.action)+' ' if depth else ''}"
+        logger.debug(f"{prestr}r:{node.reward} n:{node.count}")
+        for child in node.children:
+            log_tree(child, depth+1)
+            
     for BETA in BETAS:
         filename = f"betas/beta_{BETA}.log"
         logger.handlers[0].stream = open(filename, "w")
         
-        bandit = BanditImpl({5: 1., -5: -1.}, 10_000)
+        bandit = BanditImpl({6: 1., -4: -1.}, 10_000)
         mcts_q(bandit)
         log_tree(".")
